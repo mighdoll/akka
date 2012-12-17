@@ -700,7 +700,7 @@ abstract class StressSpec
     }
   }
 
-  def removeOne(shutdown: Boolean): Unit = within(10.seconds + convergenceWithin(2.seconds, usedRoles - 1)) {
+  def removeOne(shutdown: Boolean): Unit = within(10.seconds + convergenceWithin(3.seconds, usedRoles - 1)) {
     val currentRoles = roles.take(usedRoles - 1)
     val title = s"${if (shutdown) "shutdown" else "remove"} one from ${usedRoles} nodes cluster"
     createResultAggregator(title, expectedResults = currentRoles.size, includeInHistory = true)
@@ -719,7 +719,10 @@ abstract class StressSpec
     runOn(currentRoles: _*) {
       reportResult {
         runOn(roles.head) {
-          if (shutdown) testConductor.shutdown(removeRole, 0).await
+          if (shutdown) {
+            log.info("Shutting down [{}]", removeAddress)
+            testConductor.shutdown(removeRole, 0).await
+          }
         }
         awaitUpConvergence(currentRoles.size, timeout = remaining)
       }
@@ -749,7 +752,10 @@ abstract class StressSpec
       runOn(currentRoles: _*) {
         reportResult {
           runOn(roles.head) {
-            if (shutdown) removeRoles.foreach { r ⇒ testConductor.shutdown(r, 0).await }
+            if (shutdown) removeRoles.foreach { r ⇒
+              log.info("Shutting down [{}]", address(r))
+              testConductor.shutdown(r, 0).await
+            }
           }
           awaitUpConvergence(currentRoles.size, timeout = remaining)
         }
@@ -760,11 +766,18 @@ abstract class StressSpec
 
   def reportResult[T](thunk: ⇒ T): T = {
     val startTime = System.nanoTime
+    val startStats = clusterView.latestStats
 
     val returnValue = thunk
 
     val duration = (System.nanoTime - startTime).nanos
-    clusterResultAggregator ! ClusterResult(cluster.selfAddress, duration, clusterView.latestStats)
+    val latestStats = clusterView.latestStats
+    val clusterStats = ClusterStats(
+      receivedGossipCount = latestStats.receivedGossipCount - startStats.receivedGossipCount,
+      mergeConflictCount = latestStats.mergeConflictCount - startStats.mergeConflictCount,
+      mergeCount = latestStats.mergeCount - startStats.mergeCount,
+      mergeDetectedCount = latestStats.mergeDetectedCount - startStats.mergeDetectedCount)
+    clusterResultAggregator ! ClusterResult(cluster.selfAddress, duration, clusterStats)
     returnValue
   }
 
