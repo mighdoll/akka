@@ -113,7 +113,7 @@ illustrated in the following:
       3) If ``M4`` is delivered it must be delivered before ``M5`` and ``M6``
       4) If ``M5`` is delivered it must be delivered before ``M6``
       5) ``A2`` can see messages from ``A1`` interleaved with messages from ``A3``
-      6) Since there is no guaranteed delivery, none, some or all of the messages may arrive at ``A2``
+      6) Since there is no guaranteed delivery, any of the messages may be dropped, i.e. not arrive at ``A2``
 
 .. note::
 
