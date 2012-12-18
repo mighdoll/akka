@@ -50,13 +50,14 @@ three basic categories:
   exactly one delivery is made to the recipient; the message can neither be
   lost nor duplicated.
 
-The first one is the cheapest implementation-wise because it can be done in a
-fire-and-forget fashion without keeping state at the sending end or in the
-transport mechanism. The second one requires retries to counter transport
-losses, which means keeping state at the sending end and having an
-acknowledgement mechanism at the receiving end. The third is most expensive
-because in addition to the second it requires state to be kept at the receiving
-end in order to filter out duplicate deliveries.
+The first one is the cheapest—highest performance, least implementation
+overhead—because it can be done in a fire-and-forget fashion without keeping
+state at the sending end or in the transport mechanism. The second one requires
+retries to counter transport losses, which means keeping state at the sending
+end and having an acknowledgement mechanism at the receiving end. The third is
+most expensive—and has consequently worst performance—because in addition to
+the second it requires state to be kept at the receiving end in order to filter
+out duplicate deliveries.
 
 Discussion: Why No Guaranteed Delivery?
 ---------------------------------------
@@ -88,6 +89,12 @@ a leaky abstraction. This is a model that has been used with great success in
 Erlang and requires the users to design their applications around it. You can
 read more about this approach in the `Erlang documentation`_ (section 10.9 and
 10.10), Akka follows it closely.
+
+Another angle on this issue is that by providing only basic guarantees those
+use cases which do not need stricter guarantees do not pay the cost of their
+implementation; it is always possible to add stricter guarantees on top of
+basic ones, but it is not possible to retro-actively remove guarantees in order
+to gain more performance.
 
 Discussion: Message Ordering
 ----------------------------
@@ -180,13 +187,15 @@ possibly non-exhaustive list of counter-indications is:
 
 - Before receiving the first reply from a top-level actor, there is a lock
   which protects an internal interim queue, and this lock is not fair; the
-  implication is that enqueue requests which arrive during finalization of the
-  actor’s construction may be reordered depending on low-level thread
-  scheduling. Since completely fair locks do not exist on the JVM this is
-  unfixable.
+  implication is that enqueue requests from different senders which arrive
+  during the actor’s construction (figuratively, the details are more involved)
+  may be reordered depending on low-level thread scheduling. Since completely
+  fair locks do not exist on the JVM this is unfixable.
+
 - The same mechanism is used during the construction of a Router, more
   precisely the routed ActorRef, hence the same problem exists for actors
   deployed with Routers.
+
 - As mentioned above, the problem occurs anywhere a lock is involved during
   enqueueing, which may also apply to custom mailboxes (or durable mailboxes).
 
