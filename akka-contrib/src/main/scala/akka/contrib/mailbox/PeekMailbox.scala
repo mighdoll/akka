@@ -1,32 +1,17 @@
 package akka.contrib.mailbox
 
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.{ ConcurrentHashMap, ConcurrentLinkedQueue }
+
 import com.typesafe.config.Config
-import com.typesafe.config.ConfigFactory
-import akka.actor.Actor
-import akka.actor.ActorContext
-import akka.actor.ActorRef
-import akka.actor.ActorSystem
-import akka.actor.ExtendedActorSystem
-import akka.actor.Extension
-import akka.actor.ExtensionId
-import akka.actor.ExtensionIdProvider
-import akka.actor.Props
-import akka.actor.PoisonPill
-import akka.dispatch.Envelope
-import akka.dispatch.MailboxType
-import akka.dispatch.MessageQueue
-import akka.dispatch.QueueBasedMessageQueue
-import akka.dispatch.UnboundedMessageQueueSemantics
+
+import akka.actor.{ ActorContext, ActorRef, ActorSystem, ExtendedActorSystem, Extension, ExtensionId, ExtensionIdProvider }
+import akka.dispatch.{ Envelope, MailboxType, MessageQueue, QueueBasedMessageQueue, UnboundedMessageQueueSemantics }
 
 object PeekMailboxExtension extends ExtensionId[PeekMailboxExtension] with ExtensionIdProvider {
   def lookup = this
   def createExtension(s: ExtendedActorSystem) = new PeekMailboxExtension(s)
 
-  def ack()(implicit context: ActorContext): Unit = {
-    PeekMailboxExtension(context.system).ack()
-  }
+  def ack()(implicit context: ActorContext): Unit = PeekMailboxExtension(context.system).ack()
 }
 
 class PeekMailboxExtension(val system: ExtendedActorSystem) extends Extension {
@@ -37,12 +22,11 @@ class PeekMailboxExtension(val system: ExtendedActorSystem) extends Extension {
 
   def unregister(actorRef: ActorRef): Unit = mailboxes.remove(actorRef)
 
-  def ack()(implicit context: ActorContext): Unit = {
+  def ack()(implicit context: ActorContext): Unit =
     mailboxes.get(context.self) match {
       case null    ⇒ throw new IllegalArgumentException("Mailbox not registered for: " + context.self)
       case mailbox ⇒ mailbox.ack()
     }
-  }
 }
 
 /**
@@ -56,7 +40,8 @@ class PeekMailboxExtension(val system: ExtendedActorSystem) extends Extension {
 class PeekMailboxType(settings: ActorSystem.Settings, config: Config) extends MailboxType {
   override def create(owner: Option[ActorRef], system: Option[ActorSystem]) = (owner, system) match {
     case (Some(o), Some(s)) ⇒
-      val mailbox = new PeekMailbox(o, s, config.getInt("max-tries"))
+      val tries = config.getInt("max-tries") ensuring (_ >= 1, "max-tries must be at least 1")
+      val mailbox = new PeekMailbox(o, s, tries)
       PeekMailboxExtension(s).register(o, mailbox)
       mailbox
     case _ ⇒ throw new Exception("no mailbox owner or system given")
@@ -67,6 +52,17 @@ class PeekMailbox(owner: ActorRef, system: ActorSystem, maxTries: Int)
   extends QueueBasedMessageQueue with UnboundedMessageQueueSemantics {
   final val queue = new ConcurrentLinkedQueue[Envelope]()
 
+  /*
+   * Since the queue itself is used to determine when to schedule the actor
+   * (see Mailbox.hasMessages), we cannot poll() on the first try and then 
+   * continue handing back out that same message until ACKed, peek() must be 
+   * used. The retry limit logic is then formulated in terms of the `tries`
+   * field, which holds
+   *  0           if clean slate (i.e. last dequeue was ack()ed)
+   *  1..maxTries if not yet ack()ed
+   *  Marker      if last try was done (at which point we had to poll())
+   *  -1          during cleanUp (in order to disable the ack() requirement)
+   */
   // the mutable state is only ever accessed by the actor (i.e. dequeue() side)
   var tries = 0
   val Marker = maxTries + 1
@@ -79,7 +75,8 @@ class PeekMailbox(owner: ActorRef, system: ActorSystem, maxTries: Int)
   }
 
   def ack(): Unit = {
-    if (tries != Marker) queue.poll()
+    // do not dequeue for real if double-ack() or ack() on last try
+    if (tries != 0 && tries != Marker) queue.poll()
     tries = 0
   }
 
@@ -90,41 +87,3 @@ class PeekMailbox(owner: ActorRef, system: ActorSystem, maxTries: Int)
   }
 }
 
-//#demo
-class MyActor extends Actor {
-  def receive = {
-    case msg ⇒
-      println(msg)
-      doStuff(msg) // may fail
-      PeekMailboxExtension.ack()
-  }
-
-  //#business-logic-elided
-  var i = 0
-  def doStuff(m: Any) {
-    if (i == 1) throw new Exception("DONTWANNA")
-    i += 1
-  }
-
-  override def postStop() {
-    context.system.shutdown()
-  }
-  //#business-logic-elided
-}
-
-object MyApp extends App {
-  val system = ActorSystem("MySystem", ConfigFactory.parseString("""
-    peek-dispatcher {
-      mailbox-type = "akka.contrib.mailbox.PeekMailboxType"
-      max-tries = 2
-    }
-    """))
-
-  val myActor = system.actorOf(Props[MyActor].withDispatcher("peek-dispatcher"),
-    name = "myActor")
-
-  myActor ! "Hello"
-  myActor ! "World"
-  myActor ! PoisonPill
-}
-//#demo

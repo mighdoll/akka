@@ -31,6 +31,33 @@ also underlies the ``ask`` pattern):
 The first rule is typically found also in other actor implementations while the
 second is specific to Akka.
 
+Discussion: What does “at-most-once” mean?
+------------------------------------------
+
+When it comes to describing the semantics of a delivery mechanism, there are
+three basic categories:
+
+* **at-most-once** delivery means that for each message handed to the
+  mechanism, that message is delivered zero or one times; in more casual terms
+  it means that messages may be lost.
+
+* **at-least-once** delivery means that for each message handed to the
+  mechanism potentially multiple attempts are made at delivering it, such that
+  at least one succeeds; again, in more casual terms this means that messages
+  may be duplicated but not lost.
+
+* **exactly-once** delivery means that for each message handed to the mechanism
+  exactly one delivery is made to the recipient; the message can neither be
+  lost nor duplicated.
+
+The first one is the cheapest implementation-wise because it can be done in a
+fire-and-forget fashion without keeping state at the sending end or in the
+transport mechanism. The second one requires retries to counter transport
+losses, which means keeping state at the sending end and having an
+acknowledgement mechanism at the receiving end. The third is most expensive
+because in addition to the second it requires state to be kept at the receiving
+end in order to filter out duplicate deliveries.
+
 Discussion: Why No Guaranteed Delivery?
 ---------------------------------------
 
@@ -121,7 +148,7 @@ Reliability of Local Message Sends
 ----------------------------------
 
 The Akka test suite relies on not losing messages in the local context (and for
-“nominal” condition tests also for remote deployment), meaning that the we
+non-error condition tests also for remote deployment), meaning that the we
 actually do apply the best effort to keep our tests stable. A local ``tell``
 operation can however fail for the same reasons as a normal method call can on
 the JVM:
@@ -133,7 +160,8 @@ the JVM:
 In addition, local sends can fail in Akka-specific ways:
 
 - if the mailbox does not accept the message (e.g. full BoundedMailbox)
-- if the actor fails or already terminated
+- if the receiving actor fails while processing the message or is already
+  terminated
 
 While the first is clearly a matter of configuration the second deserves some
 thought: the sender of a message does not get feedback if there was an
@@ -214,7 +242,7 @@ otherwise implemented by keeping track of processed message IDs.
 Event Sourcing
 --------------
 
-Event sourcing (and sharding) is what makes large sites like facebook scale to
+Event sourcing (and sharding) is what makes large websites scale to
 billions of users, and the idea is quite simple: when a component (think actor)
 processes a command it will generate a list of events representing the effect
 of the command. These events are stored in addition to being applied to the
@@ -258,6 +286,15 @@ happens on a best-effort basis; it may fail even within the local JVM (e.g.
 during actor termination). Messages sent via unreliable network transports will
 be lost without turning up as dead letters.
 
+What Should I Use Dead Letters For?
+-----------------------------------
+
+The dead letter service follows the same rules with respect to delivery
+guarantees as all other message sends, hence it cannot be used to implement
+guaranteed delivery. The main use is for debugging, especially if an actor send
+does not arrive consistently (where usually inspecting the dead letters will
+tell you that the sender or recipient was set wrong somewhere along the way).
+
 How do I Receive Dead Letters?
 ------------------------------
 
@@ -271,15 +308,6 @@ manually. Also consider that dead letters are generated at that node which can
 determine that a send operation is failed, which for a remote send can be the
 local system (if no network connection can be established) or the remote one
 (if the actor you are sending to does not exist at that point in time).
-
-What Should I Use Dead Letters For?
------------------------------------
-
-The dead letter service follows the same rules with respect to delivery
-guarantees as all other message sends, hence it cannot be used to implement
-guaranteed delivery. The main use is for debugging, especially if an actor send
-does not arrive consistently (where usually inspecting the dead letters will
-tell you that the sender or recipient was set wrong somewhere along the way).
 
 Dead Letters Which are (Usually) not Worrisome
 ----------------------------------------------

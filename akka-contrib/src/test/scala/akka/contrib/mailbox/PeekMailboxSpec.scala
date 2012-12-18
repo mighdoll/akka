@@ -1,22 +1,21 @@
 package akka.contrib.mailbox
 
-import language.postfixOps
-import akka.testkit.AkkaSpec
-import akka.testkit.ImplicitSender
-import akka.actor.Props
-import akka.actor.Actor
-import scala.concurrent.duration._
-import akka.actor.DeadLetter
-import akka.actor.Terminated
-import akka.testkit.EventFilter
+import com.typesafe.config.ConfigFactory
+
+import akka.actor.{ Actor, ActorSystem, DeadLetter, PoisonPill, Props, Terminated, actorRef2Scala }
+import akka.testkit.{ AkkaSpec, EventFilter, ImplicitSender }
 
 object PeekMailboxSpec {
   case object Check
+  case object DoubleAck
   class PeekActor(tries: Int) extends Actor {
     var togo = tries
     def receive = {
       case Check ⇒
         sender ! Check
+        PeekMailboxExtension.ack()
+      case DoubleAck ⇒
+        PeekMailboxExtension.ack()
         PeekMailboxExtension.ack()
       case msg ⇒
         sender ! msg
@@ -25,10 +24,7 @@ object PeekMailboxSpec {
         PeekMailboxExtension.ack()
     }
     override def preRestart(cause: Throwable, msg: Option[Any]) {
-      msg match {
-        case Some("DIE") ⇒ context stop self // for testing the case of mailbox.cleanUp
-        case _           ⇒
-      }
+      for (m ← msg if m == "DIE") context stop self // for testing the case of mailbox.cleanUp
     }
   }
 }
@@ -69,6 +65,13 @@ class PeekMailboxSpec extends AkkaSpec("""
       expectMsg(Check)
     }
 
+    "not waste messages on double-ack()" in {
+      val a = system.actorOf(Props(new PeekActor(0)).withDispatcher("peek-dispatcher"))
+      a ! DoubleAck
+      a ! Check
+      expectMsg(Check)
+    }
+
     "support cleanup" in {
       system.eventStream.subscribe(testActor, classOf[DeadLetter])
       val a = system.actorOf(Props(new PeekActor(0)).withDispatcher("peek-dispatcher"))
@@ -84,3 +87,42 @@ class PeekMailboxSpec extends AkkaSpec("""
   }
 
 }
+
+//#demo
+class MyActor extends Actor {
+  def receive = {
+    case msg ⇒
+      println(msg)
+      doStuff(msg) // may fail
+      PeekMailboxExtension.ack()
+  }
+
+  //#business-logic-elided
+  var i = 0
+  def doStuff(m: Any) {
+    if (i == 1) throw new Exception("DONTWANNA")
+    i += 1
+  }
+
+  override def postStop() {
+    context.system.shutdown()
+  }
+  //#business-logic-elided
+}
+
+object MyApp extends App {
+  val system = ActorSystem("MySystem", ConfigFactory.parseString("""
+    peek-dispatcher {
+      mailbox-type = "akka.contrib.mailbox.PeekMailboxType"
+      max-tries = 2
+    }
+    """))
+
+  val myActor = system.actorOf(Props[MyActor].withDispatcher("peek-dispatcher"),
+    name = "myActor")
+
+  myActor ! "Hello"
+  myActor ! "World"
+  myActor ! PoisonPill
+}
+//#demo

@@ -3,30 +3,32 @@
 Mailbox with Explicit Acknowledgement
 =====================================
 
-The normal behavior of an Akka actor is to drop a message during whose
-processing an exception occurred, continuing after a restart with dequeuing the
-following message. This is in some cases not the desired solution, e.g. when
-using failure and supervision to manage a connection to an unreliable resource;
-the actor could after the restart go into a buffering mode and retry the real
-processing later, when the unreliable resource is back online.
+When an Akka actor is processing a message and an exception occurs, the normal
+behavior is for the actor to drop that message, and then continue with the next
+message after it has been restarted.  This is in some cases not the desired
+solution, e.g. when using failure and supervision to manage a connection to an
+unreliable resource; the actor could after the restart go into a buffering mode
+(i.e. change its behavior) and retry the real processing later, when the
+unreliable resource is back online.
 
-One way to do this is by buffering the messages in the supervisor and
-acknowledging successful processing in the child, another way is to build an
-explicit acknowledgement mechanism into the mailbox. The idea with the latter
-is that a message is reprocessed in case of failure until the mailbox is told
-that processing was successful.
+One way to do this is by sending all messages through the supervisor and
+buffering them there, acknowledging successful processing in the child; another
+way is to build an explicit acknowledgement mechanism into the mailbox. The
+idea with the latter is that a message is reprocessed in case of failure until
+the mailbox is told that processing was successful.
 
 The pattern is implemented `here
 <@github@/akka-contrib/src/main/scala/akka/contrib/mailbox/PeekMailbox.scala>`_.
 A demonstration of how to use it (although for brevity not a perfect example)
 is the following:
 
-.. includecode:: @contribSrc@/src/main/scala/akka/contrib/mailbox/PeekMailbox.scala
+.. includecode:: @contribSrc@/src/test/scala/akka/contrib/mailbox/PeekMailboxSpec.scala
    :include: demo
    :exclude: business-logic-elided
 
-Running this application may produce the following output (note the processing
-of “World” on lines 2 and 16):
+Running this application (try it in the Akka sources by saying
+``sbt akka-contrib/test:run``) may produce the following output (note the
+processing of “World” on lines 2 and 16):
 
 .. code-block:: none
 
