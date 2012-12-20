@@ -4,27 +4,33 @@
 Message Delivery Guarantees
 ###########################
 
-Akka actors are built on a highly efficient message passing system.  Akka is a toolkit 
-for building custom applications by 
-Developers build applications on akka by creating custom actors and defining the 
-are encouraged to design the interactions between actors  
-building communication protocols between actors.  
+We encourage akka developers to design robust acgtors that are loosely coupled with one another.  
 
-We encourage akka 
-developers to design their actor with message passing robustness at the application layer.  
-actor based software around robust protocol
-some simAkka offers a few important guarantees 
-for 
+Robust actors make few assumptions about their environment other than what they know from the messages 
+they receive.  Robust actors don't assume that all messages sent are received, or that the recipient 
+actor is even still alive.  Loosely coupled ensembles of actors don't rely on tight protocols between 
+actors, but rather build high level application specific notions of consistency.  Generally, prefer 
+asynchronous messages to routine acknowledgement, prefer send to ask.  
 
-What are the
-guarantees offered natively and which patterns exist to build more on top of
-them.
+Robust, loosely coupled actors can typically be distributed across multiple machines with little or 
+no change.  This makes scaling out easy.  Asynchronous message flows in akka are very fast.  
+Robust actors are resilient to occasional failures among their peers.  Systems built out of robust, 
+loosely coupled actors are fault tolerant, fast and releatively easy to scale.
 
-There are two parts to this question. The first part are the general guarantees
-which are given in all supported Akka deployment scenarios. The second
-part discusses stronger guarantees which can reasonably be expected in
-restricted deployments; these are not general guarantees but depend on specific
-preconditions. As a supplementary part we give a few pointers at how to build
+Of course, not every part of the system needs to be fully separated from every other part.  In a 
+particular application context, particularly among actors on the same machine, it may be fine to 
+tightly couple a pair of actors.  If a pair of actors will always be deployed on the same
+machine and both are restarted if ont fails, than it's probably OK to tightly couple the actors.
+Tightly coupled actors make more assumptions about their peers or the message delivery 
+infrastructure, which can make them easier to write and test.  In a local context, the price of 
+tighter coupling is less resiliency and less deployment flexibility in the tightly coupled portion 
+of the system.  In a distributed system, there's a notable performance penalty for using 
+message delivery systems with tighter guarantees.
+
+In the first part we discuss the general guarantees which are given in all Akka deployment 
+scenarios. The second part discusses stronger guarantees which can reasonably be expected in
+restricted deployments, notably for actors known to be deployed within a single jvm instance.
+As a supplementary part we give a few pointers at how to build
 stronger guarantees on the built-in ones.
 
 This chapter closes by discussing the role of the “Dead Letter Office”.
@@ -69,6 +75,10 @@ most expensive—and has consequently worst performance—because in addition to
 the second it requires state to be kept at the receiving end in order to filter
 out duplicate deliveries.
 
+We generally encourage you to write your actors robustly, only 
+depending **at-most-once** delivery.  
+
+
 Discussion: Why No Guaranteed Delivery?
 ---------------------------------------
 
@@ -108,6 +118,9 @@ to gain more performance.
 
 Discussion: Message Ordering
 ----------------------------
+
+[combine the transitive example, with the out of order example, reduce the number of
+ messages sent in the example]
 
 The rule more specifically is that *for a given pair of actors, messages sent
 from the first to the second will not be received out-of-order.* This is
@@ -199,7 +212,7 @@ possibly non-exhaustive list of counter-indications is:
   which protects an internal interim queue, and this lock is not fair; the
   implication is that enqueue requests from different senders which arrive
   during the actor’s construction (figuratively, the details are more involved)
-  may be reordered depending on low-level thread scheduling. Since completely
+  may be reordered depending on low-leveled scheduling. Since completely
   fair locks do not exist on the JVM this is unfixable.
 
 - The same mechanism is used during the construction of a Router, more
@@ -261,8 +274,8 @@ otherwise implemented by keeping track of processed message IDs.
 Event Sourcing
 --------------
 
-Event sourcing (and sharding) is what makes large websites scale to
-billions of users, and the idea is quite simple: when a component (think actor)
+Event sourcing is an effective scaling technique.  The idea is quite simple: 
+when a component (think actor)
 processes a command it will generate a list of events representing the effect
 of the command. These events are stored in addition to being applied to the
 component’s state. The nice thing about this scheme is that events only ever
@@ -298,6 +311,8 @@ An example implementation of this pattern is shown at :ref:`mailbox-acking`.
 
 Dead Letters
 ============
+
+[recommend eliminating routine dead letters so that bugs can be identified]
 
 Messages which cannot be delivered (and for which this can be ascertained) will
 be delivered to a synthetic actor called ``/deadLetters``. This delivery
@@ -342,4 +357,3 @@ is still watching the child when the parent terminates.
 
 .. _Erlang documentation: http://www.erlang.org/faq/academic.html
 .. _Nobody Needs Reliable Messaging: http://www.infoq.com/articles/no-reliable-messaging
-
