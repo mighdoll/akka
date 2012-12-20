@@ -1,12 +1,22 @@
-
 .. _message-delivery-guarantees:
 
 ###########################
 Message Delivery Guarantees
 ###########################
 
-Akka being a toolkit based on and promoting message passing, the most prominent
-question which arises naturally is about the precise semantics: what are the
+Akka actors are built on a highly efficient message passing system.  Akka is a toolkit 
+for building custom applications by 
+Developers build applications on akka by creating custom actors and defining the 
+are encouraged to design the interactions between actors  
+building communication protocols between actors.  
+
+We encourage akka 
+developers to design their actor with message passing robustness at the application layer.  
+actor based software around robust protocol
+some simAkka offers a few important guarantees 
+for 
+
+What are the
 guarantees offered natively and which patterns exist to build more on top of
 them.
 
